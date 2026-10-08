@@ -174,13 +174,13 @@ async function prod(){
     }catch(e){toast(e.message.includes('UNIQUE')?'That barcode already exists. Scan it to load and update the product.':e.message)}};
 }
 const H5s={};
-async function scan(cb,keep){
+async function scan(cb,keep,box){
   if(!window.Html5Qrcode)return toast('The scanner could not load. Check your internet connection.');
   $('#scan').classList.add('on');
   const h=new Html5Qrcode('reader');let last='',lt=0;
   const stop=async()=>{try{await h.stop();h.clear()}catch(e){}$('#scan').classList.remove('on')};
   $('#sd').onclick=stop;
-  try{await h.start({facingMode:'environment'},{fps:10,qrbox:{width:260,height:140}},async txt=>{
+  try{await h.start({facingMode:'environment'},{fps:10,qrbox:box?{width:box,height:box}:{width:260,height:140},experimentalFeatures:{useBarCodeDetectorIfSupported:true}},async txt=>{
     const n=Date.now();if(txt===last&&n-lt<2500)return;last=txt;lt=n;
     if(navigator.vibrate)navigator.vibrate(60);
     if(!keep)await stop();
@@ -219,36 +219,57 @@ async function unseal(blob,code){const b=unb64(blob);return JSON.parse(new TextD
 const ALPHA='ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 async function init(){await q(SCHEMA.map(s=>[s]));for(const a of ['ALTER TABLE sales ADD COLUMN device TEXT','ALTER TABLE stock_moves ADD COLUMN device TEXT']){try{await q([[a]])}catch(e){}}}
 function leave(msg){['tu','tt','role','did','dn'].forEach(k=>localStorage.removeItem(k));S.role='admin';S.dn='';connectScreen(msg)}
+let JK='';const J={n:'',r:'cashier'};
+const keyFrom=t=>String(t||'').split(/#(?:join|pair)=/).pop().replace(/\s/g,'');
 function joinScreen(err){
-  $('#app').innerHTML=`<div id="connect" class="card"><h1 style="font-size:30px;color:var(--red)">Join the store</h1><p style="color:var(--mut)">Enter the 8-character code your manager gave you. It works once.</p>${location.hash.startsWith('#pair=')?'':'<label>Pairing key from your manager<textarea id="pk" rows="3" style="width:100%;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:8px;color:inherit"></textarea></label><br><br>'}${err?`<p class="low">${esc(err)}</p>`:''}<label>Pairing code<input id="pc" autocapitalize="characters" autocomplete="off" maxlength="8" style="font-size:24px;letter-spacing:4px"></label><br><br><button class="tag" id="jn">Join</button></div>`;
-  $('#jn').onclick=async()=>{const code=$('#pc').value.trim().toUpperCase();
-    try{const o=await unseal(((location.hash.startsWith('#pair=')?location.hash:($('#pk')?.value||''))).split('#pair=').pop().replace(/\s/g,''),code).catch(()=>{throw new Error('That code is not right. Check it and try again.')});
+  if(/^#(join|pair)=/.test(location.hash))JK=keyFrom(location.hash);
+  $('#app').innerHTML=`<div id="connect" class="card"><h1 style="font-size:30px;color:var(--red)">Join the store</h1>
+  <p style="color:var(--mut)">Enter your name, choose your role and type the code your manager shows on screen.</p>${err?`<p class="low">${esc(err)}</p>`:''}
+  <label>Your name<input id="jn_n" autocomplete="name"></label><br><br>
+  <label>Join as<select id="jn_r"><option value="cashier">Billing staff</option><option value="stock">Stock staff (products and stock)</option></select></label><br><br>
+  <label>Joining code<input id="pc" autocapitalize="characters" autocomplete="off" maxlength="8" style="font-size:24px;letter-spacing:4px"></label><br><br>
+  ${JK?`<p style="color:var(--mut)">Store QR received.</p>`:`<button class="sec" id="sq2">Scan the manager's QR</button><br><br><label>Or paste the joining key<textarea id="pk" rows="3" style="width:100%;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:8px;color:inherit"></textarea></label><br><br>`}
+  <button class="tag" id="jn">Join</button> <button class="sec" id="bk">Back</button></div>`;
+  $('#jn_n').value=J.n;$('#jn_r').value=J.r;
+  const saveJ=()=>{J.n=$('#jn_n').value;J.r=$('#jn_r').value};
+  $('#bk').onclick=()=>connectScreen();
+  if($('#sq2'))$('#sq2').onclick=()=>{saveJ();scan(t=>{JK=keyFrom(t);toast('Store QR scanned');joinScreen()},false,250)};
+  $('#jn').onclick=async()=>{saveJ();const code=$('#pc').value.trim().toUpperCase(),key=JK||keyFrom($('#pk')?.value);
+    if(!J.n.trim())return joinScreen('Enter your name.');
+    if(!key)return joinScreen('Scan the manager\'s QR or paste the joining key first.');
+    try{const o=await unseal(key,code).catch(()=>{throw new Error('That code is not right. Check it and try again.')});
       S.url=o.u;S.token=o.t;
-      const r=await one(`SELECT name,role FROM pairings WHERE id=? AND used=0 AND expires>datetime('now')`,[o.p]);
-      if(!r.length)throw new Error('This code has expired or was already used. Ask your manager for a new one.');
-      const did=b64(rnd(8));
-      await q([['BEGIN'],['UPDATE pairings SET used=1 WHERE id=?',[o.p]],['INSERT INTO devices(id,name,role) VALUES(?,?,?)',[did,r[0].name,r[0].role]],['COMMIT']]);
-      Object.entries({tu:S.url,tt:S.token,role:r[0].role,did,dn:r[0].name}).forEach(([k,v])=>localStorage.setItem(k,v));
-      Object.assign(S,{role:r[0].role,did,dn:r[0].name});history.replaceState(null,'',location.pathname+location.search);
+      const r=await one(`SELECT id FROM pairings WHERE id=? AND used=0 AND expires>datetime('now')`,[o.p]);
+      if(!r.length)throw new Error('This joining session has ended. Ask your manager to show the QR again.');
+      const did=b64(rnd(8)),role=J.r==='stock'?'stock':'cashier',name=J.n.trim();
+      await q([['INSERT INTO devices(id,name,role) VALUES(?,?,?)',[did,name,role]]]);
+      Object.entries({tu:S.url,tt:S.token,role,did,dn:name}).forEach(([k,v])=>localStorage.setItem(k,v));
+      Object.assign(S,{role,did,dn:name});JK='';history.replaceState(null,'',location.pathname+location.search);
       await loadP();shell()}catch(e){joinScreen(e.message)}};
 }
 async function dev(){
   const ds=await one(`SELECT id,name,role,active,last_seen FROM devices ORDER BY created DESC`);
-  $('#m').innerHTML=`<div class="card"><h2>Add a staff phone</h2><p style="color:var(--mut)">Create a code, send the key to the phone, and tell the person the code separately. The code works once and expires in 15 minutes.</p>
-  <div class="row"><label>Staff name<input id="dn"></label><label>Can use<select id="dr"><option value="cashier">Billing only</option><option value="stock">Products and stock</option></select></label></div>
-  <button class="tag" id="mk">Create pairing code</button><div id="pc"></div></div>
-  <div class="card"><h2>Connected phones</h2><div class="wrap"><table><tr><th>Name</th><th>Access</th><th>Last seen (UTC)</th><th></th></tr>${ds.map(d=>`<tr><td>${esc(d.name)}</td><td>${d.role==='cashier'?'Billing':'Products and stock'}</td><td>${esc(d.last_seen)}</td><td><button class="sec" data-d="${esc(d.id)}" data-a="${+d.active?0:1}">${+d.active?'Remove access':'Restore access'}</button></td></tr>`).join('')||'<tr><td>No phones paired yet.</td></tr>'}</table></div></div>`;
+  const base=localStorage.getItem('appurl')||location.href.split('#')[0];
+  $('#m').innerHTML=`<div class="card"><h2>Staff joining QR</h2><p style="color:var(--mut)">Show this QR to your staff. They scan it, choose Billing staff or Stock staff, enter their name and the code shown here. It stays open for 60 minutes or until you close it.</p>
+  <label>App address staff will open<input id="au" value="${esc(base)}"></label><br><br>
+  <button class="tag" id="mk">Show joining QR</button> <button class="sec" id="cl">Close joining session</button><div id="pc"></div></div>
+  <div class="card"><h2>Connected phones</h2><div class="wrap"><table><tr><th>Name</th><th>Access</th><th>Last seen (UTC)</th><th></th></tr>${ds.map(d=>`<tr><td>${esc(d.name)}</td><td>${d.role==='cashier'?'Billing staff':'Stock staff'}</td><td>${esc(d.last_seen)}</td><td><button class="sec" data-d="${esc(d.id)}" data-a="${+d.active?0:1}">${+d.active?'Remove access':'Restore access'}</button></td></tr>`).join('')||'<tr><td>No phones joined yet.</td></tr>'}</table></div></div>`;
   document.querySelectorAll('[data-d]').forEach(b=>b.onclick=async()=>{await q([['UPDATE devices SET active=? WHERE id=?',[+b.dataset.a,b.dataset.d]]]);dev()});
-  $('#mk').onclick=async()=>{const n=$('#dn').value.trim();if(!n)return toast('Enter the staff name');
-    try{$('#mk').disabled=true;const pid=b64(rnd(6)),code=[...rnd(8)].map(x=>ALPHA[x%ALPHA.length]).join('');
+  $('#cl').onclick=async()=>{await q([['UPDATE pairings SET used=1 WHERE used=0']]);$('#pc').innerHTML='';toast('Joining session closed')};
+  $('#mk').onclick=async()=>{
+    try{$('#mk').disabled=true;const b=$('#au').value.trim().split('#')[0];localStorage.setItem('appurl',b);
+      const pid=b64(rnd(6)),code=[...rnd(8)].map(x=>ALPHA[x%ALPHA.length]).join('');
       const blob=await seal({u:S.url,t:S.token,p:pid},code);
-      await q([[`INSERT INTO pairings(id,name,role,expires) VALUES(?,?,?,datetime('now','+15 minutes'))`,[pid,n,$('#dr').value]]]);
-      const link=location.href.split('#')[0]+'#pair='+blob;
-      $('#pc').innerHTML=`<p>Code for ${esc(n)}</p><div class="num" style="font-size:44px;letter-spacing:6px;color:var(--red)">${code}</div><p>Pairing key. Send this to the phone, then tell them the code:</p><textarea id="lk" rows="4" style="width:100%;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:8px;color:inherit">${esc(blob)}</textarea><br><br><button class="sec" id="cp">Copy key</button><p style="color:var(--mut)">On the phone: open the app, tap "I'm staff: join with a pairing code", paste the key and type the code.</p></div>`;
-      $('#cp').onclick=()=>{$('#lk').select();navigator.clipboard?.writeText(blob);toast('Key copied')};
+      await q([[`INSERT INTO pairings(id,name,role,expires) VALUES(?,'join','join',datetime('now','+60 minutes'))`,[pid]]]);
+      const link=b+'#join='+blob;
+      $('#pc').innerHTML=`<p>Joining code (tell staff in person)</p><div class="num" style="font-size:44px;letter-spacing:6px;color:var(--red)">${code}</div><div id="qr" style="margin:12px 0;background:#fff;padding:12px;display:inline-block"></div>
+      <p style="color:var(--mut)">If a phone camera opens the page without the join screen, staff can tap "I'm staff: join with a pairing code" and scan this QR inside the app, or paste the key below.</p>
+      <textarea id="lk" rows="3" style="width:100%;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:8px;color:inherit">${esc(link)}</textarea><br><br><button class="sec" id="cp">Copy key</button>`;
+      $('#cp').onclick=()=>{$('#lk').select();navigator.clipboard?.writeText(link);toast('Key copied')};
+      try{new QRCode($('#qr'),{text:link,width:300,height:300,correctLevel:QRCode.CorrectLevel.L})}catch(e){$('#qr').remove();toast('QR was too large. Use the key instead.')}
     }catch(e){toast(e.message)}$('#mk').disabled=false};
 }
 const tu=localStorage.getItem('tu'),tt=localStorage.getItem('tt');
-if(location.hash.startsWith('#pair=')&&!tt){joinScreen()}
+if(/^#(join|pair)=/.test(location.hash)&&!tt){joinScreen()}
 else if(tu&&tt){S.url=tu.replace(/^libsql:\/\//,'https://').replace(/\/$/,'');S.token=tt;S.role=localStorage.getItem('role')||'admin';S.did=localStorage.getItem('did');S.dn=localStorage.getItem('dn');(S.role==='admin'?init():Promise.resolve()).then(shell).catch(e=>connectScreen(e.message))}else connectScreen();
 </script></body></html>
