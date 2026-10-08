@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Supermart POS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Archivo+Narrow:wght@600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+:root{--ink:#12372a;--paper:#f6f7f1;--card:#fff;--tag:#ffd84a;--red:#d7261e;--mut:#5c6b63;--line:#d9ddd2;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--ink:#bfe3cf;--paper:#0f1a15;--card:#17251e;--mut:#93a89c;--line:#2b3d33}}
+*{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+h1,h2,h3,.num{font-family:'Archivo Narrow',Impact,sans-serif;margin:0}
+button,input,select{font:inherit;color:inherit}
+input,select{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:8px 10px;width:100%}
+button{cursor:pointer;border:0;border-radius:6px;padding:9px 14px;background:var(--ink);color:var(--paper);font-weight:600}
+button.sec{background:transparent;color:var(--ink);border:1px solid var(--line)}button.tag{background:var(--tag);color:#12372a}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--tag);outline-offset:1px}
+header{display:flex;gap:12px;align-items:center;padding:10px 16px;background:var(--ink);color:var(--paper);flex-wrap:wrap}
+header h1{font-size:22px;color:var(--tag)}nav{display:flex;gap:4px;flex-wrap:wrap;flex:1}
+nav button{background:transparent;color:var(--paper);padding:6px 12px}nav button.on{background:var(--tag);color:#12372a}
+main{padding:16px;max-width:1200px;margin:auto}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px;margin-bottom:14px}
+.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+.stat{background:var(--tag);color:#12372a;border-radius:4px;padding:10px 12px;border-bottom:4px solid var(--red)}
+.stat b{display:block;font:700 28px 'Archivo Narrow',Impact,sans-serif}
+.row{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-bottom:10px}
+.pos{display:grid;gap:14px;grid-template-columns:1.2fr 1fr}@media(max-width:800px){.pos{grid-template-columns:1fr}}
+.wrap{overflow-x:auto}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-weight:600;color:var(--mut)}td.r,th.r{text-align:right}
+.price{font-family:'Archivo Narrow',Impact,sans-serif;font-weight:700;color:var(--red);font-size:18px}
+.item{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:8px 6px;border-bottom:1px solid var(--line);cursor:pointer;text-align:left;width:100%;background:transparent;color:inherit;border-radius:0}
+.low{color:var(--red);font-weight:600}
+.total{display:flex;justify-content:space-between;align-items:baseline}.total .num{font-size:34px;color:var(--red)}
+#toast{position:fixed;bottom:calc(16px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:10px 16px;border-radius:6px;display:none;z-index:9}
+#connect{max-width:440px;margin:8vh auto}
+#receipt{display:none}
+#scan{position:fixed;inset:0;background:rgba(0,0,0,.88);display:none;z-index:20;align-items:center;justify-content:center;flex-direction:column;gap:12px;padding:16px;color:#fff}#scan.on{display:flex}#reader{width:min(100%,420px)}
+@media print{body>*:not(#receipt){display:none!important}#receipt{display:block;font:12px monospace;width:72mm;color:#000}}
+</style></head><body>
+<div id="app"></div><div id="scan"><div id="reader"></div><p>Point the camera at the barcode</p><button class="tag" id="sd">Close camera</button></div><div id="toast" role="status"></div><div id="receipt"></div>
+<script>
+const $=s=>document.querySelector(s), esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const inr=n=>'₹'+(Number(n)||0).toFixed(2);
+const S={url:'',token:''};let P=[],cart=[],tab='dash';
+function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>t.style.display='none',2600)}
+function arg(a){if(a==null)return{type:'null'};if(typeof a==='number')return Number.isInteger(a)?{type:'integer',value:String(a)}:{type:'float',value:a};return{type:'text',value:String(a)}}
+async function q(stmts){
+  const r=await fetch(S.url+'/v2/pipeline',{method:'POST',headers:{Authorization:'Bearer '+S.token,'Content-Type':'application/json'},
+    body:JSON.stringify({requests:[...stmts.map(([sql,args=[]])=>({type:'execute',stmt:{sql,args:args.map(arg)}})),{type:'close'}]})});
+  if(!r.ok)throw new Error('Turso returned '+r.status+'. Check the URL and token.');
+  const j=await r.json(),out=[];
+  for(const x of j.results){if(x.type==='error')throw new Error(x.error.message);
+    if(x.response?.type==='execute'){const res=x.response.result;out.push(res.rows.map(row=>Object.fromEntries(res.cols.map((c,i)=>[c.name,row[i].value]))))}}
+  return out;
+}
+const one=async(sql,a)=>(await q([[sql,a]]))[0];
+const SCHEMA=[
+`CREATE TABLE IF NOT EXISTS products(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,barcode TEXT UNIQUE,sku TEXT,category TEXT,unit TEXT DEFAULT 'pcs',gst REAL DEFAULT 0,cost REAL DEFAULT 0,price REAL NOT NULL,mrp REAL,stock REAL DEFAULT 0,min_stock REAL DEFAULT 5,expiry TEXT)`,
+`CREATE TABLE IF NOT EXISTS customers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,mobile TEXT UNIQUE,email TEXT,points INTEGER DEFAULT 0)`,
+`CREATE TABLE IF NOT EXISTS suppliers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,gstin TEXT,phone TEXT,outstanding REAL DEFAULT 0)`,
+`CREATE TABLE IF NOT EXISTS sales(id INTEGER PRIMARY KEY AUTOINCREMENT,inv_no TEXT UNIQUE,ts TEXT DEFAULT CURRENT_TIMESTAMP,customer_id INTEGER,subtotal REAL,gst REAL,discount REAL,total REAL,pay_mode TEXT)`,
+`CREATE TABLE IF NOT EXISTS sale_items(id INTEGER PRIMARY KEY AUTOINCREMENT,sale_id INTEGER,product_id INTEGER,name TEXT,qty REAL,price REAL,gst REAL)`,
+`CREATE TABLE IF NOT EXISTS stock_moves(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER,qty REAL,kind TEXT,note TEXT,ts TEXT DEFAULT CURRENT_TIMESTAMP)`,
+`CREATE TABLE IF NOT EXISTS devices(id TEXT PRIMARY KEY,name TEXT,role TEXT,active INTEGER DEFAULT 1,created TEXT DEFAULT CURRENT_TIMESTAMP,last_seen TEXT)`,
+`CREATE TABLE IF NOT EXISTS pairings(id TEXT PRIMARY KEY,name TEXT,role TEXT,expires TEXT,used INTEGER DEFAULT 0)`];
+
+function connectScreen(err){
+  $('#app').innerHTML=`<div id="connect" class="card"><h1 style="font-size:30px;color:var(--red)">Supermart POS</h1>
+  <p style="color:var(--mut)">Connect your Turso database. Tables are created the first time you connect.</p>
+  ${err?`<p class="low">${esc(err)}</p>`:''}
+  <label>Database URL<input id="u" placeholder="libsql://your-db-org.turso.io" value="${esc(localStorage.getItem('tu')||'')}"></label><br><br>
+  <label>Auth token<input id="t" type="password" value="${esc(localStorage.getItem('tt')||'')}"></label><br><br>
+  <label><input type="checkbox" id="rem" checked style="width:auto"> Remember on this device</label><br><br>
+  <button class="tag" id="go">Connect</button></div>`;
+  $('#go').onclick=async()=>{
+    S.url=$('#u').value.trim().replace(/^libsql:\/\//,'https://').replace(/\/$/,'');S.token=$('#t').value.trim();
+    try{await init();S.role='admin';
+      if($('#rem').checked){localStorage.setItem('tu',$('#u').value.trim());localStorage.setItem('tt',S.token);localStorage.setItem('role','admin')}
+      await loadP();shell()}catch(e){connectScreen(e.message)}};
+}
+async function loadP(){P=(await one('SELECT * FROM products ORDER BY name')).map(p=>({...p,id:+p.id,gst:+p.gst,cost:+p.cost,price:+p.price,stock:+p.stock,min_stock:+p.min_stock}))}
+const TABS=[['dash','Dashboard'],['pos','Billing'],['prod','Products'],['stock','Stock'],['cust','Customers'],['sup','Suppliers'],['sales','Sales'],['dev','Devices']];
+const ROLE_TABS={admin:['dash','pos','prod','stock','cust','sup','sales','dev'],cashier:['pos'],stock:['prod','stock']};
+async function shell(){
+  if(S.role!=='admin'){try{const d=await one('SELECT active FROM devices WHERE id=?',[S.did]);if(!d.length||+d[0].active!==1)return leave('This phone was removed by the manager. Ask for a new pairing link.');await q([['UPDATE devices SET last_seen=CURRENT_TIMESTAMP WHERE id=?',[S.did]]])}catch(e){return toast(e.message)}}
+  const allowed=ROLE_TABS[S.role]||ROLE_TABS.admin;if(!allowed.includes(tab))tab=allowed[0];
+  await loadP().catch(()=>{});
+  $('#app').innerHTML=`<header><h1>Supermart</h1><nav>${TABS.filter(([k])=>allowed.includes(k)).map(([k,l])=>`<button data-t="${k}" class="${k===tab?'on':''}">${l}</button>`).join('')}</nav><span>${esc(S.dn||'Manager')}</span><button class="sec" id="out" style="color:var(--paper)">Disconnect</button></header><main id="m"></main>`;
+  document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{tab=b.dataset.t;shell()});
+  $('#out').onclick=()=>leave();
+  ({dash,pos,prod,stock,cust,sup,sales,dev})[tab]().catch(e=>toast(e.message));
+}
+const IST="date(ts,'+330 minutes')";
+async function dash(){
+  const [t,m,low,top,pay]=await q([
+   [`SELECT COALESCE(SUM(total),0) s,COUNT(*) n,COALESCE(SUM(gst),0) g FROM sales WHERE ${IST}=date('now','+330 minutes')`],
+   [`SELECT COALESCE(SUM(total),0) s FROM sales WHERE strftime('%Y-%m',ts,'+330 minutes')=strftime('%Y-%m','now','+330 minutes')`],
+   [`SELECT name,stock,min_stock FROM products WHERE stock<=min_stock ORDER BY stock LIMIT 10`],
+   [`SELECT name,SUM(qty) q FROM sale_items GROUP BY name ORDER BY q DESC LIMIT 5`],
+   [`SELECT pay_mode,SUM(total) s FROM sales WHERE ${IST}=date('now','+330 minutes') GROUP BY pay_mode`]]);
+  const out=low.filter(p=>+p.stock<=0).length;
+  $('#m').innerHTML=`<div class="grid"><div class="stat">Today's sales<b>${inr(t[0].s)}</b></div><div class="stat">Bills today<b>${t[0].n}</b></div><div class="stat">GST collected today<b>${inr(t[0].g)}</b></div><div class="stat">This month<b>${inr(m[0].s)}</b></div></div><br>
+  <div class="pos"><div class="card"><h2>Low stock (${low.length}${out?`, ${out} out`:''})</h2>${low.length?`<div class="wrap"><table><tr><th>Product</th><th class="r">In stock</th><th class="r">Minimum</th></tr>${low.map(p=>`<tr><td>${esc(p.name)}</td><td class="r low">${p.stock}</td><td class="r">${p.min_stock}</td></tr>`).join('')}</table></div>`:'<p>All products are above their minimum.</p>'}</div>
+  <div class="card"><h2>Top sellers</h2>${top.length?top.map(p=>`<div class="item" style="cursor:default"><span>${esc(p.name)}</span><b>${+p.q}</b></div>`).join(''):'<p>No sales yet. Add products, then bill from the Billing tab.</p>'}
+  <h3 style="margin-top:14px">Today by payment mode</h3>${pay.map(p=>`<div class="item" style="cursor:default"><span>${esc(p.pay_mode)}</span><b>${inr(p.s)}</b></div>`).join('')||'<p>No payments yet today.</p>'}</div></div>`;
+}
+function calc(){let sub=0,gst=0;cart.forEach(c=>{const l=c.price*c.qty;sub+=l;gst+=l*c.gst/(100+c.gst)});
+  const d=Math.min(+($('#disc')?.value)||0,sub);return{sub,gst,d,total:sub-d}}
+async function pos(){
+  $('#m').innerHTML=`<div class="pos"><div class="card"><input id="s" placeholder="Scan barcode or search product, then press Enter" autofocus><br><button class="sec" id="sc" style="margin-top:8px">Scan with camera</button><div id="res" style="margin-top:8px"></div></div>
+  <div class="card"><h2>Current bill</h2><div class="wrap" id="cart"></div><div class="row" style="margin-top:10px"><input id="disc" type="number" min="0" placeholder="Discount ₹"><input id="mob" placeholder="Customer mobile (optional)"></div>
+  <div class="row"><select id="pm"><option>Cash</option><option>UPI</option><option>Card</option><option>Wallet</option><option>Split</option></select><button class="sec" id="clr">Clear</button></div>
+  <div class="total"><span>Total (incl. GST)</span><span class="num" id="tot"></span></div><div id="gstl" style="color:var(--mut)"></div><br><button class="tag" id="pay" style="width:100%;padding:13px">Complete sale and print</button></div></div>`;
+  const s=$('#s');
+  const show=()=>{const v=s.value.trim().toLowerCase();const r=v?P.filter(p=>p.name.toLowerCase().includes(v)||(p.barcode||'')===v||(p.sku||'').toLowerCase()===v).slice(0,12):[];
+    $('#res').innerHTML=r.map(p=>`<button class="item" data-id="${p.id}"><span>${esc(p.name)}<br><small style="color:var(--mut)">${p.stock} ${esc(p.unit)} left</small></span><span class="price">${inr(p.price)}</span></button>`).join('')||(v?'<p>No product matches. Check the barcode or add it under Products.</p>':'');
+    document.querySelectorAll('#res .item').forEach(b=>b.onclick=()=>add(+b.dataset.id))};
+  $('#sc').onclick=()=>scan(t=>{const p=P.find(p=>p.barcode===t||p.sku===t);if(p){add(p.id);toast('Added '+p.name)}else toast('No product with barcode '+t)},true);
+  s.oninput=show;
+  s.onkeydown=e=>{if(e.key==='Enter'){const v=s.value.trim();const p=P.find(p=>p.barcode===v)||P.filter(p=>p.name.toLowerCase().includes(v.toLowerCase()))[0];if(p)add(p.id);else toast('No product found')}};
+  function add(id){const p=P.find(p=>p.id===id);const c=cart.find(c=>c.id===id);if(c)c.qty++;else cart.push({id,name:p.name,price:p.price,gst:p.gst,qty:1});s.value='';$('#res').innerHTML='';draw();s.focus()}
+  function draw(){const t=calc();
+    $('#cart').innerHTML=cart.length?`<table>${cart.map((c,i)=>`<tr><td>${esc(c.name)}</td><td><button class="sec" data-i="${i}" data-d="-1">−</button> ${c.qty} <button class="sec" data-i="${i}" data-d="1">+</button></td><td class="r">${inr(c.price*c.qty)}</td></tr>`).join('')}</table>`:'<p>The bill is empty. Scan an item to start.</p>';
+    $('#tot').textContent=inr(t.total);$('#gstl').textContent=`Includes GST ${inr(t.gst*(t.sub?t.total/t.sub:1))}`;
+    document.querySelectorAll('#cart [data-i]').forEach(b=>b.onclick=()=>{const c=cart[+b.dataset.i];c.qty+=+b.dataset.d;if(c.qty<=0)cart.splice(+b.dataset.i,1);draw()})}
+  $('#disc').oninput=draw;$('#clr').onclick=()=>{cart=[];draw()};
+  $('#pay').onclick=async()=>{
+    if(!cart.length)return toast('Add at least one item');
+    const short=cart.find(c=>c.qty>P.find(p=>p.id===c.id).stock);if(short&&!confirm(`${short.name} has less stock than the quantity billed. Continue?`))return;
+    const t=calc(),ratio=t.sub?t.total/t.sub:1,inv='INV'+Date.now().toString().slice(-9),mob=$('#mob').value.trim(),pm=$('#pm').value;
+    try{
+      const st=[['BEGIN']];
+      if(mob)st.push([`INSERT INTO customers(name,mobile) VALUES('Customer',?) ON CONFLICT(mobile) DO NOTHING`,[mob]]);
+      st.push([`INSERT INTO sales(inv_no,customer_id,subtotal,gst,discount,total,pay_mode,device) VALUES(?,(SELECT id FROM customers WHERE mobile=?),?,?,?,?,?,?)`,[inv,mob||null,t.sub,t.gst*ratio,t.d,t.total,pm,S.dn||'Manager']]);
+      cart.forEach(c=>{st.push([`INSERT INTO sale_items(sale_id,product_id,name,qty,price,gst) VALUES((SELECT id FROM sales WHERE inv_no=?),?,?,?,?,?)`,[inv,c.id,c.name,c.qty,c.price,c.gst]]);
+        st.push([`UPDATE products SET stock=stock-? WHERE id=?`,[c.qty,c.id]]);
+        st.push([`INSERT INTO stock_moves(product_id,qty,kind,note,device) VALUES(?,?,'sale',?,?)`,[c.id,-c.qty,inv,S.dn||'Manager']])});
+      if(mob)st.push([`UPDATE customers SET points=points+? WHERE mobile=?`,[Math.floor(t.total/100),mob]]);
+      st.push(['COMMIT']);await q(st);
+      $('#receipt').innerHTML=`<b>SUPERMART</b><br>${inv} ${new Date().toLocaleString('en-IN')}<hr>${cart.map(c=>`${esc(c.name)}<br>&nbsp;${c.qty} x ${c.price.toFixed(2)} = ${(c.qty*c.price).toFixed(2)}`).join('<br>')}<hr>Discount ${t.d.toFixed(2)}<br>GST incl. ${(t.gst*ratio).toFixed(2)}<br><b>TOTAL ${t.total.toFixed(2)}</b> (${pm})`;
+      cart=[];await loadP();toast('Sale saved: '+inv);window.print();pos()
+    }catch(e){toast('Sale not saved: '+e.message)}};
+  draw();
+}
+function form(fields,vals={}){return `<div class="row">${fields.map(([k,l,ty='text'])=>`<label>${l}<input data-k="${k}" type="${ty}" value="${esc(vals[k]??'')}"></label>`).join('')}</div>`}
+const get=()=>Object.fromEntries([...document.querySelectorAll('[data-k]')].map(i=>[i.dataset.k,i.value.trim()]));
+const PF=[['name','Name'],['barcode','Barcode'],['sku','SKU'],['category','Category'],['unit','Unit'],['gst','GST %','number'],['cost','Purchase price','number'],['price','Selling price (incl. GST)','number'],['mrp','MRP','number'],['stock','Opening stock','number'],['min_stock','Minimum stock','number'],['expiry','Expiry','date']];
+let editId=null;
+async function prod(){
+  editId=null;
+  $('#m').innerHTML=`<div class="card"><h2>Add or update product</h2><p style="color:var(--mut)">Scan the barcode to fill the barcode and SKU. If the product already exists, its details load so you can update them. Tap any row below to edit it.</p><button class="sec" id="scanb">Scan barcode with camera</button><br><br>${form(PF,{unit:'pcs',gst:5,min_stock:5})}<button class="tag" id="sv">Save product</button> <button class="sec" id="nw">Clear form</button></div>
+  <div class="card"><div class="wrap"><table><tr><th>Name</th><th>Barcode</th><th>Category</th><th class="r">GST</th><th class="r">Price</th><th class="r">Stock</th><th>Expiry</th></tr>${P.map(p=>`<tr data-id="${p.id}" style="cursor:pointer"><td>${esc(p.name)}</td><td>${esc(p.barcode)}</td><td>${esc(p.category)}</td><td class="r">${p.gst}%</td><td class="r">${inr(p.price)}</td><td class="r ${p.stock<=p.min_stock?'low':''}">${p.stock}</td><td>${esc(p.expiry)}</td></tr>`).join('')||'<tr><td>No products yet.</td></tr>'}</table></div></div>`;
+  const fill=p=>{document.querySelectorAll('[data-k]').forEach(i=>{i.value=p[i.dataset.k]??''});editId=p.id;$('#sv').textContent='Update product';window.scrollTo(0,0)};
+  document.querySelectorAll('tr[data-id]').forEach(r=>r.onclick=()=>fill(P.find(p=>p.id===+r.dataset.id)));
+  $('#nw').onclick=prod;
+  $('#scanb').onclick=()=>scan(t=>{const p=P.find(p=>p.barcode===t);
+    if(p){fill(p);toast('Existing product loaded. Change values and tap Update.')}
+    else{document.querySelector('[data-k=barcode]').value=t;const s=document.querySelector('[data-k=sku]');if(!s.value)s.value=t;toast('Barcode captured. Enter the name and price.')}});
+  $('#sv').onclick=async()=>{const v=get();if(!v.name||!v.price)return toast('Name and selling price are required');
+    const b=v.barcode||null,vals=[v.name,b,v.sku||b,v.category,v.unit||'pcs',+v.gst||0,+v.cost||0,+v.price,+v.mrp||+v.price,+v.stock||0,+v.min_stock||0,v.expiry||null];
+    try{
+      if(editId){const old=P.find(p=>p.id===editId),diff=vals[9]-old.stock;
+        await q([['BEGIN'],[`UPDATE products SET name=?,barcode=?,sku=?,category=?,unit=?,gst=?,cost=?,price=?,mrp=?,stock=?,min_stock=?,expiry=? WHERE id=?`,[...vals,editId]],
+          ...(diff?[[`INSERT INTO stock_moves(product_id,qty,kind,note) VALUES(?,?,'adjust','Edited in product form')`,[editId,diff]]]:[]),['COMMIT']]);
+      }else{
+        await q([['BEGIN'],[`INSERT INTO products(name,barcode,sku,category,unit,gst,cost,price,mrp,stock,min_stock,expiry) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,vals],
+          [`INSERT INTO stock_moves(product_id,qty,kind,note) VALUES((SELECT id FROM products WHERE name=? ORDER BY id DESC LIMIT 1),?,'opening','Opening stock')`,[v.name,vals[9]]],['COMMIT']]);
+      }
+      await loadP();toast(editId?'Product updated':'Product saved');prod()
+    }catch(e){toast(e.message.includes('UNIQUE')?'That barcode already exists. Scan it to load and update the product.':e.message)}};
+}
+const H5s={};
+async function scan(cb,keep){
+  if(!window.Html5Qrcode)return toast('The scanner could not load. Check your internet connection.');
+  $('#scan').classList.add('on');
+  const h=new Html5Qrcode('reader');let last='',lt=0;
+  const stop=async()=>{try{await h.stop();h.clear()}catch(e){}$('#scan').classList.remove('on')};
+  $('#sd').onclick=stop;
+  try{await h.start({facingMode:'environment'},{fps:10,qrbox:{width:260,height:140}},async txt=>{
+    const n=Date.now();if(txt===last&&n-lt<2500)return;last=txt;lt=n;
+    if(navigator.vibrate)navigator.vibrate(60);
+    if(!keep)await stop();
+    cb(txt)})}
+  catch(e){$('#scan').classList.remove('on');toast('Camera is blocked or unavailable. Allow camera access and open this page over https.')}
+}
+async function stock(){
+  const mv=await one(`SELECT m.ts,p.name,m.qty,m.kind,m.note,m.device FROM stock_moves m JOIN products p ON p.id=m.product_id ORDER BY m.id DESC LIMIT 30`);
+  $('#m').innerHTML=`<div class="card"><h2>Adjust stock</h2><div class="row"><select id="sp">${P.map(p=>`<option value="${p.id}">${esc(p.name)} (${p.stock})</option>`).join('')}</select>
+  <select id="sk"><option value="purchase">Stock in (purchase)</option><option value="damaged">Damaged (out)</option><option value="expired">Expired (out)</option><option value="adjust">Audit correction (+/−)</option></select>
+  <input id="sq" type="number" placeholder="Quantity"><input id="sn" placeholder="Note or bill no."></div><button class="sec" id="ss">Scan item</button> <button class="tag" id="sa">Update stock</button></div>
+  <div class="card"><h2>Recent movements</h2><div class="wrap"><table><tr><th>Time (UTC)</th><th>Product</th><th class="r">Qty</th><th>Type</th><th>Note</th><th>By</th></tr>${mv.map(m=>`<tr><td>${esc(m.ts)}</td><td>${esc(m.name)}</td><td class="r">${m.qty}</td><td>${esc(m.kind)}</td><td>${esc(m.note)}</td><td>${esc(m.device)}</td></tr>`).join('')}</table></div></div>`;
+  $('#ss').onclick=()=>scan(t=>{const p=P.find(p=>p.barcode===t);if(p){$('#sp').value=p.id;toast(p.name+' selected. Enter the quantity.');$('#sq').focus()}else toast('No product with barcode '+t+'. Add it under Products.')});
+  $('#sa').onclick=async()=>{const id=+$('#sp').value,k=$('#sk').value;let n=+$('#sq').value;if(!id||!n)return toast('Choose a product and quantity');
+    if(k==='damaged'||k==='expired')n=-Math.abs(n);else if(k==='purchase')n=Math.abs(n);
+    try{await q([['BEGIN'],[`UPDATE products SET stock=stock+? WHERE id=?`,[n,id]],[`INSERT INTO stock_moves(product_id,qty,kind,note,device) VALUES(?,?,?,?,?)`,[id,n,k,$('#sn').value,S.dn||'Manager']],['COMMIT']]);await loadP();toast('Stock updated');stock()}catch(e){toast(e.message)}};
+}
+function simple(table,title,fields,cols){return async()=>{
+  const rows=await one(`SELECT * FROM ${table} ORDER BY id DESC`);
+  $('#m').innerHTML=`<div class="card"><h2>Add ${title}</h2>${form(fields)}<button class="tag" id="sv">Save ${title}</button></div><div class="card"><div class="wrap"><table><tr>${cols.map(c=>`<th>${c[1]}</th>`).join('')}</tr>${rows.map(r=>`<tr>${cols.map(c=>`<td>${esc(r[c[0]])}</td>`).join('')}</tr>`).join('')||'<tr><td>Nothing here yet.</td></tr>'}</table></div></div>`;
+  $('#sv').onclick=async()=>{const v=get();if(!v.name)return toast('Name is required');const ks=fields.map(f=>f[0]);
+    try{await q([[`INSERT INTO ${table}(${ks.join(',')}) VALUES(${ks.map(()=>'?').join(',')})`,ks.map(k=>v[k]||null)]]);toast('Saved');simple(table,title,fields,cols)()}catch(e){toast(e.message.includes('UNIQUE')?'That mobile number already exists':e.message)}}}}
+const cust=simple('customers','customer',[['name','Name'],['mobile','Mobile'],['email','Email']],[['name','Name'],['mobile','Mobile'],['email','Email'],['points','Loyalty points']]);
+const sup=simple('suppliers','supplier',[['name','Name'],['gstin','GSTIN'],['phone','Phone'],['outstanding','Outstanding ₹','number']],[['name','Name'],['gstin','GSTIN'],['phone','Phone'],['outstanding','Outstanding ₹']]);
+async function sales(){
+  const r=await one(`SELECT inv_no,ts,subtotal,gst,discount,total,pay_mode,device FROM sales ORDER BY id DESC LIMIT 100`);
+  $('#m').innerHTML=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center"><h2>Last 100 bills</h2><button class="sec" id="csv">Export CSV</button></div><div class="wrap"><table><tr><th>Invoice</th><th>Time (UTC)</th><th class="r">Discount</th><th class="r">GST</th><th class="r">Total</th><th>Paid by</th><th>Staff</th></tr>${r.map(s=>`<tr><td>${esc(s.inv_no)}</td><td>${esc(s.ts)}</td><td class="r">${(+s.discount).toFixed(2)}</td><td class="r">${(+s.gst).toFixed(2)}</td><td class="r">${(+s.total).toFixed(2)}</td><td>${esc(s.pay_mode)}</td><td>${esc(s.device)}</td></tr>`).join('')||'<tr><td>No bills yet.</td></tr>'}</table></div></div>`;
+  $('#csv').onclick=()=>{const c=['inv_no,ts,subtotal,gst,discount,total,pay_mode,device',...r.map(s=>Object.values(s).join(','))].join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([c],{type:'text/csv'}));a.download='sales.csv';a.click()};
+}
+const b64=u=>btoa(String.fromCharCode(...u)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+const unb64=s=>Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
+const rnd=n=>crypto.getRandomValues(new Uint8Array(n));
+async function dkey(code,salt){const k=await crypto.subtle.importKey('raw',new TextEncoder().encode(code),'PBKDF2',false,['deriveKey']);return crypto.subtle.deriveKey({name:'PBKDF2',salt,iterations:300000,hash:'SHA-256'},k,{name:'AES-GCM',length:256},false,['encrypt','decrypt'])}
+async function seal(obj,code){const salt=rnd(16),iv=rnd(12);const ct=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv},await dkey(code,salt),new TextEncoder().encode(JSON.stringify(obj))));return b64([...salt,...iv,...ct])}
+async function unseal(blob,code){const b=unb64(blob);return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:b.slice(16,28)},await dkey(code,b.slice(0,16)),b.slice(28))))}
+const ALPHA='ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+async function init(){await q(SCHEMA.map(s=>[s]));for(const a of ['ALTER TABLE sales ADD COLUMN device TEXT','ALTER TABLE stock_moves ADD COLUMN device TEXT']){try{await q([[a]])}catch(e){}}}
+function leave(msg){['tu','tt','role','did','dn'].forEach(k=>localStorage.removeItem(k));S.role='admin';S.dn='';connectScreen(msg)}
+function joinScreen(err){
+  $('#app').innerHTML=`<div id="connect" class="card"><h1 style="font-size:30px;color:var(--red)">Join the store</h1><p style="color:var(--mut)">Enter the 8-character code your manager gave you. It works once.</p>${err?`<p class="low">${esc(err)}</p>`:''}<label>Pairing code<input id="pc" autocapitalize="characters" autocomplete="off" maxlength="8" style="font-size:24px;letter-spacing:4px"></label><br><br><button class="tag" id="jn">Join</button></div>`;
+  $('#jn').onclick=async()=>{const code=$('#pc').value.trim().toUpperCase();
+    try{const o=await unseal(location.hash.slice(6),code).catch(()=>{throw new Error('That code is not right. Check it and try again.')});
+      S.url=o.u;S.token=o.t;
+      const r=await one(`SELECT name,role FROM pairings WHERE id=? AND used=0 AND expires>datetime('now')`,[o.p]);
+      if(!r.length)throw new Error('This code has expired or was already used. Ask your manager for a new one.');
+      const did=b64(rnd(8));
+      await q([['BEGIN'],['UPDATE pairings SET used=1 WHERE id=?',[o.p]],['INSERT INTO devices(id,name,role) VALUES(?,?,?)',[did,r[0].name,r[0].role]],['COMMIT']]);
+      Object.entries({tu:S.url,tt:S.token,role:r[0].role,did,dn:r[0].name}).forEach(([k,v])=>localStorage.setItem(k,v));
+      Object.assign(S,{role:r[0].role,did,dn:r[0].name});history.replaceState(null,'',location.pathname+location.search);
+      await loadP();shell()}catch(e){joinScreen(e.message)}};
+}
+async function dev(){
+  const ds=await one(`SELECT id,name,role,active,last_seen FROM devices ORDER BY created DESC`);
+  $('#m').innerHTML=`<div class="card"><h2>Add a staff phone</h2><p style="color:var(--mut)">Create a code, send the link to the phone, and tell the person the code separately. The code works once and expires in 15 minutes.</p>
+  <div class="row"><label>Staff name<input id="dn"></label><label>Can use<select id="dr"><option value="cashier">Billing only</option><option value="stock">Products and stock</option></select></label></div>
+  <button class="tag" id="mk">Create pairing code</button><div id="pc"></div></div>
+  <div class="card"><h2>Connected phones</h2><div class="wrap"><table><tr><th>Name</th><th>Access</th><th>Last seen (UTC)</th><th></th></tr>${ds.map(d=>`<tr><td>${esc(d.name)}</td><td>${d.role==='cashier'?'Billing':'Products and stock'}</td><td>${esc(d.last_seen)}</td><td><button class="sec" data-d="${esc(d.id)}" data-a="${+d.active?0:1}">${+d.active?'Remove access':'Restore access'}</button></td></tr>`).join('')||'<tr><td>No phones paired yet.</td></tr>'}</table></div></div>`;
+  document.querySelectorAll('[data-d]').forEach(b=>b.onclick=async()=>{await q([['UPDATE devices SET active=? WHERE id=?',[+b.dataset.a,b.dataset.d]]]);dev()});
+  $('#mk').onclick=async()=>{const n=$('#dn').value.trim();if(!n)return toast('Enter the staff name');
+    try{$('#mk').disabled=true;const pid=b64(rnd(6)),code=[...rnd(8)].map(x=>ALPHA[x%ALPHA.length]).join('');
+      const blob=await seal({u:S.url,t:S.token,p:pid},code);
+      await q([[`INSERT INTO pairings(id,name,role,expires) VALUES(?,?,?,datetime('now','+15 minutes'))`,[pid,n,$('#dr').value]]]);
+      const link=location.href.split('#')[0]+'#pair='+blob;
+      $('#pc').innerHTML=`<p>Code for ${esc(n)}</p><div class="num" style="font-size:44px;letter-spacing:6px;color:var(--red)">${code}</div><p>Phone link (opens this same page):</p><input id="lk" value="${esc(link)}"><br><br><button class="sec" id="cp">Copy link</button><div id="qr" style="margin-top:12px;background:#fff;padding:10px;display:inline-block"></div>`;
+      $('#cp').onclick=()=>{$('#lk').select();navigator.clipboard?.writeText(link);toast('Link copied')};
+      try{new QRCode($('#qr'),{text:link,width:240,height:240,correctLevel:QRCode.CorrectLevel.L})}catch(e){$('#qr').remove()}
+    }catch(e){toast(e.message)}$('#mk').disabled=false};
+}
+const tu=localStorage.getItem('tu'),tt=localStorage.getItem('tt');
+if(location.hash.startsWith('#pair=')&&!tt){joinScreen()}
+else if(tu&&tt){S.url=tu.replace(/^libsql:\/\//,'https://').replace(/\/$/,'');S.token=tt;S.role=localStorage.getItem('role')||'admin';S.did=localStorage.getItem('did');S.dn=localStorage.getItem('dn');(S.role==='admin'?init():Promise.resolve()).then(shell).catch(e=>connectScreen(e.message))}else connectScreen();
+</script></body></html>
