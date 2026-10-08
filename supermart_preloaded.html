@@ -43,7 +43,7 @@ th{font-weight:600;color:var(--mut)}td.r,th.r{text-align:right}
 const $=s=>document.querySelector(s), esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const inr=n=>'₹'+(Number(n)||0).toFixed(2);
 // Paste your Turso details between the quotes to preload the connect screen.
-const PRESET={url:'libsql://kvmart-jagsaam7.aws-ap-south-1.turso.io',token:'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3OTE0NjAwNTEsImlkIjoiMDFhMTFiNDYtMGEwMS03NzRkLWJkNmMtZWM5YzAyMDNlNDgzIiwia2lkIjoiTVgwNUM3d2czMllVdVJTblR2dHBtczlrRXRhbXlVRWpZTzZYRl9UMFRSSSIsInJpZCI6ImVkZjBkZTg3LWY0YjUtNGNjNi04MWEyLTI1ZTc1MjIwODM0NCJ9.icVzZF0Cne6hpL70Qrgb60hqRf9vDMnkkbQLJ6s9Ptflo-7oXN2qAZYVFPYYrAfT0RLY9aH9wsJO0mgEhirKBA'};
+const PRESET={url:'',token:'',blob:'jnG0AyYsNwdM__3WcaArp2GCj4jHpXdx1X4WVvxiLkiXF16fjPveCvymKTSkarMI4MSxNZf7Rhqk_QbaFmy8gfMdNR27U_szW9hMQllAl8rgUpHYitV7R81iZoAPXslbRSuU2difMEpqKjBm_VvDSYb9KH8_Xu7zO7RFxlP12-Xz4DIvgpNOjXHSESQN6M40p108E5_BV76nUPCBSJNubbCe1RNOBcRgZUIIAED3A6heQ_PfdDwYkxdlc1WAWeXN_Rd8G1CNWoYtcm3enG0O9IGTqV5JYoId0Me8w1pWSgeQRRtR31_SfkpwFR-tUOkK5s2vUza-Xb3HllHMfKjjB44fE6J7ffjoL9BssK2cC0Dnss7MHDtq98KL9RSbLBmtnzds0PmN_KVqUrmXd93wkRPEnjM7N_wtBQdcK_Ve7gh2xxJ29UkeirxJshEnBdDLK2QJ--XxxAXl4844oI9r3-EI9ccBZ9iIP0V9ijCYj2s5S5Vyh9qbiKt4Epa91YjTCNBb65ncX8hDCuwmxTsw86O-_Uq6fzb3v3AR0f8QchwpRQ4rgUR88J_USZJp5_tO6tJwBmqCqd7AwGRPyQ850uWJ5-FZvqY'};
 const S={url:'',token:''};let P=[],cart=[],tab='dash';
 function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>t.style.display='none',2600)}
 function arg(a){if(a==null)return{type:'null'};if(typeof a==='number')return Number.isInteger(a)?{type:'integer',value:String(a)}:{type:'float',value:a};return{type:'text',value:String(a)}}
@@ -68,25 +68,34 @@ const SCHEMA=[
 `CREATE TABLE IF NOT EXISTS pairings(id TEXT PRIMARY KEY,name TEXT,role TEXT,expires TEXT,used INTEGER DEFAULT 0)`];
 
 function connectScreen(err){
+  const B=!!PRESET.blob;
   $('#app').innerHTML=`<div id="connect" class="card"><h1 style="font-size:30px;color:var(--red)">Supermart POS</h1>
-  <p style="color:var(--mut)">Connect your Turso database. Tables are created the first time you connect.</p>
   ${err?`<p class="low">${esc(err)}</p>`:''}
-  <label>Database URL<input id="u" placeholder="libsql://your-db-org.turso.io" value="${esc(localStorage.getItem('tu')||PRESET.url)}"></label><br><br>
-  <label>Auth token<input id="t" type="password" value="${esc(localStorage.getItem('tt')||PRESET.token)}"></label><br><br>
-  <label><input type="checkbox" id="rem" checked style="width:auto"> Remember on this device</label><br><br>
-  <button class="tag" id="go">Connect</button><br><br><button class="sec" id="jp">I'm staff: join with a pairing code</button></div>`;
+  ${B?`<h2>Manager sign in</h2><label>Manager password<input id="mp" type="password" autocomplete="current-password"></label><br><br><label><input type="checkbox" id="rem" checked style="width:auto"> Remember on this device</label><br><br><button class="tag" id="go">Sign in</button><br><br>`:''}
+  <details ${B?'':'open'}><summary>${B?'Use a different database':'Database connection'}</summary><br><label>Database URL<input id="u" placeholder="libsql://your-db-org.turso.io" value="${esc(localStorage.getItem('tu')||PRESET.url)}"></label><br><br><label>Auth token<input id="t" type="password" value="${esc(localStorage.getItem('tt')||PRESET.token)}"></label><br><br>${B?'':`<label><input type="checkbox" id="rem" checked style="width:auto"> Remember on this device</label><br><br>`}<button class="tag" id="go2">Connect</button></details><br>
+  <button class="sec" id="jp">I'm staff: join with a code</button></div>`;
   $('#jp').onclick=()=>joinScreen();
-  $('#go').onclick=async()=>{
-    S.url=$('#u').value.trim().replace(/^libsql:\/\//,'https://').replace(/\/$/,'');S.token=$('#t').value.trim();
-    try{await init();S.role='admin';
-      if($('#rem').checked){localStorage.setItem('tu',$('#u').value.trim());localStorage.setItem('tt',S.token);localStorage.setItem('role','admin')}
+  const start=async(u,t)=>{S.url=u.trim().replace(/^libsql:\/\//,'https://').replace(/\/$/,'');S.token=t.trim();
+    try{await init();S.role='admin';S.dn='';
+      if($('#rem').checked){localStorage.setItem('tu',S.url);localStorage.setItem('tt',S.token);localStorage.setItem('role','admin')}
       await loadP();shell()}catch(e){connectScreen(e.message)}};
+  $('#go2').onclick=()=>start($('#u').value,$('#t').value);
+  if($('#go'))$('#go').onclick=async()=>{let o;try{o=await unseal(PRESET.blob,$('#mp').value.trim())}catch(e){return connectScreen('That password is not right.')}start(o.u,o.t)};
 }
 async function loadP(){P=(await one('SELECT * FROM products ORDER BY name')).map(p=>({...p,id:+p.id,gst:+p.gst,cost:+p.cost,price:+p.price,stock:+p.stock,min_stock:+p.min_stock}))}
 const TABS=[['dash','Dashboard'],['pos','Billing'],['prod','Products'],['stock','Stock'],['cust','Customers'],['sup','Suppliers'],['sales','Sales'],['dev','Devices']];
-const ROLE_TABS={admin:['dash','pos','prod','stock','cust','sup','sales','dev'],cashier:['pos'],stock:['prod','stock']};
+const ROLE_TABS={admin:['dash','pos','prod','stock','cust','sup','sales','dev'],cashier:['pos'],staff:['pos','prod','stock'],stock:['prod','stock']};
 async function shell(){
-  if(S.role!=='admin'){try{const d=await one('SELECT active FROM devices WHERE id=?',[S.did]);if(!d.length||+d[0].active!==1)return leave('This phone was removed by the manager. Ask for a new pairing link.');await q([['UPDATE devices SET last_seen=CURRENT_TIMESTAMP WHERE id=?',[S.did]]])}catch(e){return toast(e.message)}}
+  if(S.role!=='admin'){
+    let d;try{d=(await one('SELECT active,approved,pin_hash,pin_salt,role FROM devices WHERE id=?',[S.did]))[0]}catch(e){return toast(e.message)}
+    if(!d||+d.active!==1)return leave('This phone was removed by the manager. Ask for the joining QR again.');
+    if(+d.approved!==1)return waitScreen();
+    S.role=d.role==='stock'?'staff':d.role;
+    if(!d.pin_hash)return pinScreen('set');
+    if((+localStorage.getItem('fails')||0)>=5)return pinScreen('locked');
+    if(!sessionStorage.getItem('ok'))return pinScreen('enter',d);
+    q([['UPDATE devices SET last_seen=CURRENT_TIMESTAMP WHERE id=?',[S.did]]]).catch(()=>{});
+  }
   const allowed=ROLE_TABS[S.role]||ROLE_TABS.admin;if(!allowed.includes(tab))tab=allowed[0];
   await loadP().catch(()=>{});
   $('#app').innerHTML=`<header><h1>Supermart</h1><nav>${TABS.filter(([k])=>allowed.includes(k)).map(([k,l])=>`<button data-t="${k}" class="${k===tab?'on':''}">${l}</button>`).join('')}</nav><span>${esc(S.dn||'Manager')}</span><button class="sec" id="out" style="color:var(--paper)">Disconnect</button></header><main id="m"></main>`;
@@ -217,8 +226,8 @@ async function dkey(code,salt){const k=await crypto.subtle.importKey('raw',new T
 async function seal(obj,code){const salt=rnd(16),iv=rnd(12);const ct=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv},await dkey(code,salt),new TextEncoder().encode(JSON.stringify(obj))));return b64([...salt,...iv,...ct])}
 async function unseal(blob,code){const b=unb64(blob);return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:b.slice(16,28)},await dkey(code,b.slice(0,16)),b.slice(28))))}
 const ALPHA='ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-async function init(){await q(SCHEMA.map(s=>[s]));for(const a of ['ALTER TABLE sales ADD COLUMN device TEXT','ALTER TABLE stock_moves ADD COLUMN device TEXT']){try{await q([[a]])}catch(e){}}}
-function leave(msg){['tu','tt','role','did','dn'].forEach(k=>localStorage.removeItem(k));S.role='admin';S.dn='';connectScreen(msg)}
+async function init(){await q(SCHEMA.map(s=>[s]));for(const a of ['ALTER TABLE sales ADD COLUMN device TEXT','ALTER TABLE stock_moves ADD COLUMN device TEXT','ALTER TABLE devices ADD COLUMN approved INTEGER DEFAULT 0','ALTER TABLE devices ADD COLUMN pin_hash TEXT','ALTER TABLE devices ADD COLUMN pin_salt TEXT']){try{await q([[a]])}catch(e){}}}
+function leave(msg){clearTimeout(WT);sessionStorage.clear();localStorage.removeItem('fails');['tu','tt','role','did','dn'].forEach(k=>localStorage.removeItem(k));S.role='admin';S.dn='';connectScreen(msg)}
 let JK='';const J={n:'',r:'cashier'};
 const keyFrom=t=>String(t||'').split(/#(?:join|pair)=/).pop().replace(/\s/g,'');
 function joinScreen(err){
@@ -226,7 +235,7 @@ function joinScreen(err){
   $('#app').innerHTML=`<div id="connect" class="card"><h1 style="font-size:30px;color:var(--red)">Join the store</h1>
   <p style="color:var(--mut)">Enter your name, choose your role and type the code your manager shows on screen.</p>${err?`<p class="low">${esc(err)}</p>`:''}
   <label>Your name<input id="jn_n" autocomplete="name"></label><br><br>
-  <label>Join as<select id="jn_r"><option value="cashier">Billing staff</option><option value="stock">Stock staff (products and stock)</option></select></label><br><br>
+  <label>Join as<select id="jn_r"><option value="cashier">Billing staff</option><option value="staff">Staff (billing, products, stock)</option></select></label><br><br>
   <label>Joining code<input id="pc" autocapitalize="characters" autocomplete="off" maxlength="8" style="font-size:24px;letter-spacing:4px"></label><br><br>
   ${JK?`<p style="color:var(--mut)">Store QR received.</p>`:`<button class="sec" id="sq2">Scan the manager's QR</button><br><br><label>Or paste the joining key<textarea id="pk" rows="3" style="width:100%;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:8px;color:inherit"></textarea></label><br><br>`}
   <button class="tag" id="jn">Join</button> <button class="sec" id="bk">Back</button></div>`;
@@ -241,20 +250,20 @@ function joinScreen(err){
       S.url=o.u;S.token=o.t;
       const r=await one(`SELECT id FROM pairings WHERE id=? AND used=0 AND expires>datetime('now')`,[o.p]);
       if(!r.length)throw new Error('This joining session has ended. Ask your manager to show the QR again.');
-      const did=b64(rnd(8)),role=J.r==='stock'?'stock':'cashier',name=J.n.trim();
-      await q([['INSERT INTO devices(id,name,role) VALUES(?,?,?)',[did,name,role]]]);
+      const did=b64(rnd(8)),role=J.r==='staff'?'staff':'cashier',name=J.n.trim();
+      await q([['INSERT INTO devices(id,name,role,approved) VALUES(?,?,?,0)',[did,name,role]]]);
       Object.entries({tu:S.url,tt:S.token,role,did,dn:name}).forEach(([k,v])=>localStorage.setItem(k,v));
       Object.assign(S,{role,did,dn:name});JK='';history.replaceState(null,'',location.pathname+location.search);
-      await loadP();shell()}catch(e){joinScreen(e.message)}};
+      shell()}catch(e){joinScreen(e.message)}};
 }
 async function dev(){
-  const ds=await one(`SELECT id,name,role,active,last_seen FROM devices ORDER BY created DESC`);
+  const ds=await one(`SELECT id,name,role,active,approved,last_seen FROM devices ORDER BY created DESC`);
   const base=localStorage.getItem('appurl')||location.href.split('#')[0];
-  $('#m').innerHTML=`<div class="card"><h2>Staff joining QR</h2><p style="color:var(--mut)">Show this QR to your staff. They scan it, choose Billing staff or Stock staff, enter their name and the code shown here. It stays open for 60 minutes or until you close it.</p>
+  $('#m').innerHTML=`<div class="card"><h2>Staff joining QR</h2><p style="color:var(--mut)">Show this QR to your staff. They scan it, choose Billing staff or Staff, enter their name and the code shown here. Each phone then waits for your approval below and sets its own PIN. The session stays open for 60 minutes or until you close it.</p>
   <label>App address staff will open<input id="au" value="${esc(base)}"></label><br><br>
   <button class="tag" id="mk">Show joining QR</button> <button class="sec" id="cl">Close joining session</button><div id="pc"></div></div>
-  <div class="card"><h2>Connected phones</h2><div class="wrap"><table><tr><th>Name</th><th>Access</th><th>Last seen (UTC)</th><th></th></tr>${ds.map(d=>`<tr><td>${esc(d.name)}</td><td>${d.role==='cashier'?'Billing staff':'Stock staff'}</td><td>${esc(d.last_seen)}</td><td><button class="sec" data-d="${esc(d.id)}" data-a="${+d.active?0:1}">${+d.active?'Remove access':'Restore access'}</button></td></tr>`).join('')||'<tr><td>No phones joined yet.</td></tr>'}</table></div></div>`;
-  document.querySelectorAll('[data-d]').forEach(b=>b.onclick=async()=>{await q([['UPDATE devices SET active=? WHERE id=?',[+b.dataset.a,b.dataset.d]]]);dev()});
+  <div class="card"><h2>Connected phones</h2><div class="wrap"><table><tr><th>Name</th><th>Access</th><th>Status</th><th>Last seen (UTC)</th><th></th></tr>${ds.map(d=>{const st=!+d.active?'Removed':!+d.approved?'Waiting for approval':'Active';return `<tr><td>${esc(d.name)}</td><td>${d.role==='cashier'?'Billing staff':'Staff'}</td><td class="${st==='Waiting for approval'?'low':''}">${st}</td><td>${esc(d.last_seen)}</td><td>${!+d.approved&&+d.active?`<button class="tag" data-d="${esc(d.id)}" data-x="approve">Approve</button> `:''}<button class="sec" data-d="${esc(d.id)}" data-x="pin">Reset PIN</button> <button class="sec" data-d="${esc(d.id)}" data-x="${+d.active?'remove':'restore'}">${+d.active?'Remove':'Restore'}</button></td></tr>`}).join('')||'<tr><td>No phones joined yet.</td></tr>'}</table></div></div>`;
+  document.querySelectorAll('[data-d]').forEach(b=>b.onclick=async()=>{const sql={approve:'UPDATE devices SET approved=1 WHERE id=?',pin:'UPDATE devices SET pin_hash=NULL,pin_salt=NULL WHERE id=?',remove:'UPDATE devices SET active=0 WHERE id=?',restore:'UPDATE devices SET active=1,approved=1 WHERE id=?'}[b.dataset.x];await q([[sql,[b.dataset.d]]]);toast('Done');dev()});
   $('#cl').onclick=async()=>{await q([['UPDATE pairings SET used=1 WHERE used=0']]);$('#pc').innerHTML='';toast('Joining session closed')};
   $('#mk').onclick=async()=>{
     try{$('#mk').disabled=true;const b=$('#au').value.trim().split('#')[0];localStorage.setItem('appurl',b);
@@ -269,6 +278,25 @@ async function dev(){
       try{new QRCode($('#qr'),{text:link,width:300,height:300,correctLevel:QRCode.CorrectLevel.L})}catch(e){$('#qr').remove();toast('QR was too large. Use the key instead.')}
     }catch(e){toast(e.message)}$('#mk').disabled=false};
 }
+let WT;
+const sha=async t=>b64(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(t))));
+function waitScreen(){clearTimeout(WT);
+  $('#app').innerHTML=`<div id="connect" class="card"><h1 style="font-size:28px;color:var(--red)">Waiting for approval</h1><p>${esc(S.dn)}, your manager needs to approve this phone. This page checks automatically.</p><button class="sec" id="lo">Cancel</button></div>`;
+  $('#lo').onclick=()=>leave();WT=setTimeout(shell,4000)}
+function pinScreen(mode,d){clearTimeout(WT);
+  const msg={set:'Choose a PIN of 4 to 6 digits. You will enter it each time you open the app.',enter:'Enter your PIN to continue.',locked:'Too many wrong PINs. Ask your manager to reset your PIN. This page checks automatically.'}[mode];
+  $('#app').innerHTML=`<div id="connect" class="card"><h1 style="font-size:28px;color:var(--red)">${mode==='set'?'Set your PIN':'Unlock'}</h1><p style="color:var(--mut)">${msg}</p>${mode==='locked'?'':`<input id="pin" type="password" inputmode="numeric" maxlength="6" autocomplete="off" style="font-size:28px;letter-spacing:8px"><br><br><button class="tag" id="ok">${mode==='set'?'Save PIN':'Unlock'}</button> `}<button class="sec" id="lo">Sign out</button></div>`;
+  $('#lo').onclick=()=>leave();
+  if(mode==='locked'){WT=setTimeout(shell,5000);return}
+  const go=async()=>{const p=$('#pin').value.trim();if(!/^\d{4,6}$/.test(p))return toast('Use 4 to 6 digits');
+    try{
+      if(mode==='set'){const salt=b64(rnd(8));await q([['UPDATE devices SET pin_hash=?,pin_salt=? WHERE id=?',[await sha(salt+p),salt,S.did]]]);localStorage.removeItem('fails');sessionStorage.setItem('ok','1');shell()}
+      else if(await sha(d.pin_salt+p)===d.pin_hash){localStorage.removeItem('fails');sessionStorage.setItem('ok','1');shell()}
+      else{const f=(+localStorage.getItem('fails')||0)+1;localStorage.setItem('fails',f);$('#pin').value='';if(f>=5)shell();else toast('Wrong PIN. '+(5-f)+' tries left')}
+    }catch(e){toast(e.message)}};
+  $('#ok').onclick=go;$('#pin').onkeydown=e=>{if(e.key==='Enter')go()};$('#pin').focus()}
+let hiddenAt=0;
+document.addEventListener('visibilitychange',()=>{if(document.hidden)hiddenAt=Date.now();else if(S.role&&S.role!=='admin'&&S.did&&hiddenAt&&Date.now()-hiddenAt>600000){sessionStorage.removeItem('ok');shell()}});
 const tu=localStorage.getItem('tu'),tt=localStorage.getItem('tt');
 if(/^#(join|pair)=/.test(location.hash)&&!tt){joinScreen()}
 else if(tu&&tt){S.url=tu.replace(/^libsql:\/\//,'https://').replace(/\/$/,'');S.token=tt;S.role=localStorage.getItem('role')||'admin';S.did=localStorage.getItem('did');S.dn=localStorage.getItem('dn');(S.role==='admin'?init():Promise.resolve()).then(shell).catch(e=>connectScreen(e.message))}else connectScreen();
