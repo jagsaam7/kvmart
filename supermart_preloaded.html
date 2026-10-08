@@ -74,7 +74,8 @@ function connectScreen(err){
   <label>Database URL<input id="u" placeholder="libsql://your-db-org.turso.io" value="${esc(localStorage.getItem('tu')||PRESET.url)}"></label><br><br>
   <label>Auth token<input id="t" type="password" value="${esc(localStorage.getItem('tt')||PRESET.token)}"></label><br><br>
   <label><input type="checkbox" id="rem" checked style="width:auto"> Remember on this device</label><br><br>
-  <button class="tag" id="go">Connect</button></div>`;
+  <button class="tag" id="go">Connect</button><br><br><button class="sec" id="jp">I'm staff: join with a pairing code</button></div>`;
+  $('#jp').onclick=()=>joinScreen();
   $('#go').onclick=async()=>{
     S.url=$('#u').value.trim().replace(/^libsql:\/\//,'https://').replace(/\/$/,'');S.token=$('#t').value.trim();
     try{await init();S.role='admin';
@@ -219,9 +220,9 @@ const ALPHA='ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 async function init(){await q(SCHEMA.map(s=>[s]));for(const a of ['ALTER TABLE sales ADD COLUMN device TEXT','ALTER TABLE stock_moves ADD COLUMN device TEXT']){try{await q([[a]])}catch(e){}}}
 function leave(msg){['tu','tt','role','did','dn'].forEach(k=>localStorage.removeItem(k));S.role='admin';S.dn='';connectScreen(msg)}
 function joinScreen(err){
-  $('#app').innerHTML=`<div id="connect" class="card"><h1 style="font-size:30px;color:var(--red)">Join the store</h1><p style="color:var(--mut)">Enter the 8-character code your manager gave you. It works once.</p>${err?`<p class="low">${esc(err)}</p>`:''}<label>Pairing code<input id="pc" autocapitalize="characters" autocomplete="off" maxlength="8" style="font-size:24px;letter-spacing:4px"></label><br><br><button class="tag" id="jn">Join</button></div>`;
+  $('#app').innerHTML=`<div id="connect" class="card"><h1 style="font-size:30px;color:var(--red)">Join the store</h1><p style="color:var(--mut)">Enter the 8-character code your manager gave you. It works once.</p>${location.hash.startsWith('#pair=')?'':'<label>Pairing key from your manager<textarea id="pk" rows="3" style="width:100%;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:8px;color:inherit"></textarea></label><br><br>'}${err?`<p class="low">${esc(err)}</p>`:''}<label>Pairing code<input id="pc" autocapitalize="characters" autocomplete="off" maxlength="8" style="font-size:24px;letter-spacing:4px"></label><br><br><button class="tag" id="jn">Join</button></div>`;
   $('#jn').onclick=async()=>{const code=$('#pc').value.trim().toUpperCase();
-    try{const o=await unseal(location.hash.slice(6),code).catch(()=>{throw new Error('That code is not right. Check it and try again.')});
+    try{const o=await unseal(((location.hash.startsWith('#pair=')?location.hash:($('#pk')?.value||''))).split('#pair=').pop().replace(/\s/g,''),code).catch(()=>{throw new Error('That code is not right. Check it and try again.')});
       S.url=o.u;S.token=o.t;
       const r=await one(`SELECT name,role FROM pairings WHERE id=? AND used=0 AND expires>datetime('now')`,[o.p]);
       if(!r.length)throw new Error('This code has expired or was already used. Ask your manager for a new one.');
@@ -233,7 +234,7 @@ function joinScreen(err){
 }
 async function dev(){
   const ds=await one(`SELECT id,name,role,active,last_seen FROM devices ORDER BY created DESC`);
-  $('#m').innerHTML=`<div class="card"><h2>Add a staff phone</h2><p style="color:var(--mut)">Create a code, send the link to the phone, and tell the person the code separately. The code works once and expires in 15 minutes.</p>
+  $('#m').innerHTML=`<div class="card"><h2>Add a staff phone</h2><p style="color:var(--mut)">Create a code, send the key to the phone, and tell the person the code separately. The code works once and expires in 15 minutes.</p>
   <div class="row"><label>Staff name<input id="dn"></label><label>Can use<select id="dr"><option value="cashier">Billing only</option><option value="stock">Products and stock</option></select></label></div>
   <button class="tag" id="mk">Create pairing code</button><div id="pc"></div></div>
   <div class="card"><h2>Connected phones</h2><div class="wrap"><table><tr><th>Name</th><th>Access</th><th>Last seen (UTC)</th><th></th></tr>${ds.map(d=>`<tr><td>${esc(d.name)}</td><td>${d.role==='cashier'?'Billing':'Products and stock'}</td><td>${esc(d.last_seen)}</td><td><button class="sec" data-d="${esc(d.id)}" data-a="${+d.active?0:1}">${+d.active?'Remove access':'Restore access'}</button></td></tr>`).join('')||'<tr><td>No phones paired yet.</td></tr>'}</table></div></div>`;
@@ -243,9 +244,8 @@ async function dev(){
       const blob=await seal({u:S.url,t:S.token,p:pid},code);
       await q([[`INSERT INTO pairings(id,name,role,expires) VALUES(?,?,?,datetime('now','+15 minutes'))`,[pid,n,$('#dr').value]]]);
       const link=location.href.split('#')[0]+'#pair='+blob;
-      $('#pc').innerHTML=`<p>Code for ${esc(n)}</p><div class="num" style="font-size:44px;letter-spacing:6px;color:var(--red)">${code}</div><p>Phone link (opens this same page):</p><input id="lk" value="${esc(link)}"><br><br><button class="sec" id="cp">Copy link</button><div id="qr" style="margin-top:12px;background:#fff;padding:10px;display:inline-block"></div>`;
-      $('#cp').onclick=()=>{$('#lk').select();navigator.clipboard?.writeText(link);toast('Link copied')};
-      try{new QRCode($('#qr'),{text:link,width:240,height:240,correctLevel:QRCode.CorrectLevel.L})}catch(e){$('#qr').remove()}
+      $('#pc').innerHTML=`<p>Code for ${esc(n)}</p><div class="num" style="font-size:44px;letter-spacing:6px;color:var(--red)">${code}</div><p>Pairing key. Send this to the phone, then tell them the code:</p><textarea id="lk" rows="4" style="width:100%;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:8px;color:inherit">${esc(blob)}</textarea><br><br><button class="sec" id="cp">Copy key</button><p style="color:var(--mut)">On the phone: open the app, tap "I'm staff: join with a pairing code", paste the key and type the code.</p></div>`;
+      $('#cp').onclick=()=>{$('#lk').select();navigator.clipboard?.writeText(blob);toast('Key copied')};
     }catch(e){toast(e.message)}$('#mk').disabled=false};
 }
 const tu=localStorage.getItem('tu'),tt=localStorage.getItem('tt');
